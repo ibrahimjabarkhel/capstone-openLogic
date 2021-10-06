@@ -2,12 +2,14 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"io"
 	"log"
 	"net/http"
-	"flag"
+	"regexp"
 
 	datastore "./datastore"
+
 	tokenauth "./google-token-auth"
 )
 
@@ -20,11 +22,13 @@ var (
 	// Client-side client ID from your Google Developer Console
 	// Same as in the front-end index.php
 	authorized_client_ids = []string{
-		"266670200080-to3o173goghk64b6a0t0i04o18nt2r3i.apps.googleusercontent.com",
+		"ijabarkhel@csumb.edu",
+		// "165889122798-6a4ig7mhpqet5cpp276reigd0escm3bg.apps.googleusercontent.com",
+		// "266670200080-to3o173goghk64b6a0t0i04o18nt2r3i.apps.googleusercontent.com",
 	}
 
 	admin_users = map[string]bool{
-        "sislam@csumb.edu":   true,
+		"sislam@csumb.edu":   true,
 		"gbruns@csumb.edu":   true,
 		"cohunter@csumb.edu": true,
 	}
@@ -63,7 +67,7 @@ func getAdmins(w http.ResponseWriter, req *http.Request) {
 func (env *Env) saveProof(w http.ResponseWriter, req *http.Request) {
 	var user userWithEmail
 	user = req.Context().Value("tok").(userWithEmail)
-	
+
 	var submittedProof datastore.Proof
 
 	// read the JSON-encoded value from the HTTP request and store it in submittedProof
@@ -138,7 +142,7 @@ func (env *Env) getProofs(w http.ResponseWriter, req *http.Request) {
 	case "completedrepo":
 		log.Println("completedrepo selection")
 		err, proofs = env.ds.GetUserCompletedProofs(user)
-	
+
 	case "downloadrepo":
 		log.Println("downloadrepo selection")
 		if !admin_users[user.GetEmail()] {
@@ -180,22 +184,36 @@ func (env *Env) clearDatabase() {
 
 func (env *Env) populateTestData() {
 	err := env.ds.Store(datastore.Proof{
-		EntryType: "proof",
-		UserSubmitted: "gbruns@csumb.edu",
-		ProofName: "Repository - Problem 2",
-		ProofType: "prop",
-		Premise: []string{"P", "P -> Q", "Q -> R", "R -> S", "S -> T", "T -> U", "V -> W", "W -> X", "X -> Y", "Y -> X"},
-		Logic: []string{},
-		Rules: []string{},
+		EntryType:      "proof",
+		UserSubmitted:  "gbruns@csumb.edu",
+		ProofName:      "Repository - Problem 2",
+		ProofType:      "prop",
+		Premise:        []string{"P", "P -> Q", "Q -> R", "R -> S", "S -> T", "T -> U", "V -> W", "W -> X", "X -> Y", "Y -> X"},
+		Logic:          []string{},
+		Rules:          []string{},
 		ProofCompleted: "false",
-		Conclusion: "Y",
-		TimeSubmitted: "2019-04-29T01:45:44.452+0000",
-		RepoProblem: "true",
+		Conclusion:     "Y",
+		TimeSubmitted:  "2019-04-29T01:45:44.452+0000",
+		RepoProblem:    "true",
 	})
 
 	if err != nil {
 		log.Fatal(err)
 	}
+}
+
+func serveFiles(w http.ResponseWriter, req *http.Request) {
+	log.Println(req.URL.Path)
+	p := "." + req.URL.Path
+	re := regexp.MustCompile("[^/]*$")
+	if p == "./" {
+		p = "../frontend/index.html"
+		log.Println(p)
+	} else if re.FindString(req.URL.Path) != "" {
+		p = "../frontend" + req.URL.Path
+		log.Println(p)
+	}
+	http.ServeFile(w, req, p)
 }
 
 func main() {
@@ -209,12 +227,12 @@ func main() {
 
 	// Add the admin users to the database for use in queries
 	ds.UpdateAdmins(admin_users)
-	
+
 	Env := &Env{ds} // Put the instance into a struct to share between threads
 
 	doClearDatabase := flag.Bool("cleardb", false, "Remove all proofs from the database")
 	doPopulateDatabase := flag.Bool("populate", false, "Add sample data to the public repository.")
-	portPtr := flag.String("port", "8080", "Port to listen on")
+	portPtr := flag.String("port", "5000", "Port to listen on")
 
 	flag.Parse() // Check for command-line arguments
 	if *doClearDatabase {
@@ -234,9 +252,12 @@ func main() {
 	// method user : POST : JSON -> [proof, proof, ...]
 	http.Handle("/proofs", tokenauth.WithValidToken(http.HandlerFunc(Env.getProofs)))
 
+	// render first page of the website.
+
+	http.Handle("/", http.HandlerFunc(serveFiles))
 	// Get admin users -- this is a public endpoint, no token required
 	// Can be changed to require token, but would reduce cacheability
 	http.Handle("/admins", http.HandlerFunc(getAdmins))
-	log.Println("Server started")
-	log.Fatal(http.ListenAndServe("127.0.0.1:"+(*portPtr), nil))
+	log.Println("Server started on localhost:" + (*portPtr))
+	log.Fatal(http.ListenAndServe("localhost:"+(*portPtr), nil))
 }
